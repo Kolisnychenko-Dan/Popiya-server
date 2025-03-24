@@ -1,6 +1,7 @@
-namespace Game.GameCommands;
-
-public interface IGameCommand
+namespace Game.GameCommands
 {
-	void Execute();
+	public interface IGameCommand
+	{
+		bool TryExecute(GameData gameData);
+	}	
 }

@@ -1,70 +1,105 @@
-using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.WebSockets;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+using Game.GameCommandResponseData;
+using Newtonsoft.Json;
 
-namespace Server;
-
-public class WebSocketServer
+namespace Server
 {
-	private static List<WebSocket> _clients = new();
-
-    public static async Task Start()
+    public class WebSocketServer
     {
-        HttpListener listener = new();
-        listener.Prefixes.Add("http://localhost:5000/");
-        listener.Start();
-        Console.WriteLine("WebSocket Server started on ws://localhost:5000/");
+        private GameSessionManager _gameManager = new ();
 
-        while (true)
+        public async Task Start()
         {
-            HttpListenerContext context = await listener.GetContextAsync();
-            if (context.Request.IsWebSocketRequest)
+            var listener = new HttpListener();
+            listener.Prefixes.Add("http://localhost:5000/");
+            listener.Start();
+            Console.WriteLine("WebSocket Server started on ws://localhost:5000/");
+
+            while (true)
             {
-                HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
-                WebSocket webSocket = wsContext.WebSocket;
-                _clients.Add(webSocket);
-                _ = HandleClient(webSocket);
-            }
-            else
-            {
-                context.Response.StatusCode = 400;
-                context.Response.Close();
+                var context = await listener.GetContextAsync();
+                if (context.Request.IsWebSocketRequest)
+                {
+                    var wsContext = await context.AcceptWebSocketAsync(null);
+                    var webSocket = wsContext.WebSocket;
+                    _ = HandleClient(webSocket);
+                }
+                else
+                {
+                    context.Response.StatusCode = 400;
+                    context.Response.Close();
+                }
             }
         }
-    }
 
-    private static async Task HandleClient(WebSocket socket)
-    {
-        byte[] buffer = new byte[1024];
-
-        while (socket.State == WebSocketState.Open)
+        private async Task HandleClient(WebSocket socket)
         {
-            WebSocketReceiveResult result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-            if (result.MessageType == WebSocketMessageType.Close)
+            byte[] buffer = new byte[1024];
+
+            while (socket.State == WebSocketState.Open)
             {
-                _clients.Remove(socket);
-                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-                return;
+                var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    return;
+                }
+
+                string message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                await ProcessMessage(message, socket);
             }
-            string message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-            Console.WriteLine($"Received: {message}");
-            await BroadcastMessage(message);
         }
-    }
 
-    private static async Task BroadcastMessage(string message)
-    {
-        byte[] buffer = Encoding.UTF8.GetBytes(message);
-        foreach (var client in _clients)
+        private async Task ProcessMessage(string jsonMessage, WebSocket senderSocket)
         {
-            if (client.State == WebSocketState.Open)
+            var receivedMessage = JsonConvert.DeserializeObject<GameMessage>(jsonMessage);
+            string playerId = receivedMessage.PlayerId;
+
+            switch (receivedMessage.Type)
             {
-                await client.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+                case MessageType.Create:
+                    _gameManager.AddPlayer(playerId, senderSocket);
+                    string sessionId = _gameManager.CreateGameSession(playerId);
+
+                    var response = new CommandResponse(ResponseStatus.Success, new GameMessage(
+                        type: MessageType.Create,
+                        playerId: playerId,
+                        data: JsonConvert.SerializeObject(new CreateSessionResponseData(sessionId))
+                    ));
+
+                    await SendMessageToClient(response, senderSocket);
+                    break;
+
+                case MessageType.Connect:
+                    bool joined = _gameManager.JoinGameSession(playerId, receivedMessage.Data);
+                    var connectResponse = new CommandResponse(
+                        joined ? ResponseStatus.Success : ResponseStatus.Failure,
+                        new GameMessage(
+                            type: MessageType.Connect,
+                            playerId: playerId,
+                            data: receivedMessage.Data
+                        )
+                    );
+                    await SendMessageToClient(connectResponse, senderSocket);
+                    break;
+
+                case MessageType.Move:
+                    bool moveSuccess = _gameManager.ProcessMove(playerId, receivedMessage.Data);
+                    var moveResponse = new CommandResponse(
+                        moveSuccess ? ResponseStatus.Success : ResponseStatus.Failure,
+                        receivedMessage
+                    );
+                    await SendMessageToClient(moveResponse, senderSocket);
+                    break;
             }
+        }
+
+        private async Task SendMessageToClient(object message, WebSocket socket)
+        {
+            string json = JsonConvert.SerializeObject(message);
+            byte[] buffer = Encoding.UTF8.GetBytes(json);
+            await socket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
         }
     }
 }

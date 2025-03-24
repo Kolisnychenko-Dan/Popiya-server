@@ -1,9 +1,13 @@
-﻿using Server;
+﻿using System.Threading.Tasks;
 
-class Program
+namespace Server
 {
-	static async Task Main(string[] args)
+	class Program
 	{
-		await WebSocketServer.Start();
-	}
+		static async Task Main(string[] args)
+		{
+			var localServer = new WebSocketServer();
+			await localServer.Start();
+		}
+	}	
 }

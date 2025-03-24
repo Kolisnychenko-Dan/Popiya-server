@@ -1,10 +1,33 @@
-namespace Game.GameCommands;
+using System;
+using Game.GameCommandData;
 
-public class MoveGameCommand(TileData from, TileData to) : IGameCommand
+namespace Game.GameCommands
 {
-	public void Execute()
+	public class MoveGameCommand : IGameCommand
 	{
-		to.Unit = from.Unit;
-		from.Unit = null;
-	}
+		private readonly GameCommandData.MoveGameCommandData _moveGameCommandData;
+
+		public MoveGameCommand(GameCommandData.MoveGameCommandData moveGameCommandData)
+		{
+			_moveGameCommandData = moveGameCommandData;
+		}
+
+		public bool TryExecute(GameData gameData)
+		{
+			var from = gameData.GetTileByCoordinates(_moveGameCommandData.From);
+			var to = gameData.GetTileByCoordinates(_moveGameCommandData.To);
+		
+			if (from.Unit != null && to.Unit == null)
+			{
+				to.Unit = from.Unit;
+				from.Unit = null;
+				return true;
+			}
+			else
+			{
+				Console.WriteLine($"Error: Moving from {from.Coordinates} to {to.Coordinates}");
+				return false;
+			}
+		}
+	}	
 }

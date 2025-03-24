@@ -1,19 +1,14 @@
-namespace Game;
-
-public struct TileCoordinates
+namespace Game
 {
-	private int _x;
-	private int _y;
-
-	public int X
+	public readonly struct TileCoordinates
 	{
-		get => _x;
-		set => _x = value;
-	}
+		public TileCoordinates(int x, int y)
+		{
+			X = x;
+			Y = y;
+		}
 
-	public int Y
-	{
-		get => _y;
-		set => _y = value;
-	}
+		public int X { get; }
+		public int Y { get; }
+	}	
 }
